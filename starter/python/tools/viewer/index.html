@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FK Viewer</title>
+<style>
+  :root {
+    --bg: #15171c;
+    --panel: rgba(28, 31, 38, 0.88);
+    --border: #2e333d;
+    --text: #e6e8ec;
+    --muted: #9aa1ad;
+    --accent: #6ea8fe;
+    --ok: #4cc38a;
+    --warn: #f0b429;
+    --bad: #ef6b6b;
+    --button: #262b34;
+    --button-hover: #313845;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #view { position: fixed; inset: 0; }
+  #panel { position: fixed; top: 16px; left: 16px; width: min(320px, calc(100vw - 32px));
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+    backdrop-filter: blur(6px); display: grid; gap: 12px; }
+  #panel.hidden { display: none; }
+  h1 { font-size: 14px; margin: 0; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); flex: none; }
+  .dot.on { background: var(--ok); }
+  .section { display: grid; gap: 6px; }
+  .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .state { font-weight: 600; font-size: 15px; }
+  .chip { padding: 1px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); color: var(--muted); }
+  .chip.running { color: var(--ok); border-color: var(--ok); }
+  .chip.stopped { color: var(--warn); border-color: var(--warn); }
+  button, select { font: inherit; color: var(--text); background: var(--button); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { background: var(--button-hover); }
+  select { flex: 1; min-width: 0; }
+  label.toggle { display: flex; gap: 6px; align-items: center; color: var(--muted); cursor: pointer; }
+  #msg { color: var(--muted); font-size: 12px; min-height: 1.4em; overflow-wrap: anywhere; }
+  #msg.error { color: var(--bad); }
+  .hint { color: var(--muted); font-size: 11px; }
+  #empty { position: fixed; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none;
+    text-align: center; padding: 16px; }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="empty">Waiting for a robot…<br>Load one with <code>python3 tools/fk_client.py &lt;file.urdf&gt;</code></div>
+
+<div id="panel">
+  <h1><span id="gw" class="dot" title="runtime connection"></span><span id="robot-name">No robot</span></h1>
+  <div class="hint" id="robot-info">—</div>
+
+  <div class="section">
+    <div class="label">Choreography</div>
+    <div class="row"><span class="state" id="fsm-state">—</span><span class="chip" id="fsm-running">idle</span></div>
+    <div class="hint" id="fsm-detail">no FSM deployed</div>
+    <div class="row">
+      <select id="saved" aria-label="saved choreographies"></select>
+      <button id="deploy">Deploy</button>
+    </div>
+    <div class="row">
+      <button id="start">Start</button>
+      <button id="stop">Stop</button>
+      <button id="reset">Reset joints</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="label">Display</div>
+    <div class="row">
+      <label class="toggle"><input type="checkbox" id="skeleton"> skeleton</label>
+      <label class="toggle"><input type="checkbox" id="frames"> link frames</label>
+      <label class="toggle"><input type="checkbox" id="spin"> orbit</label>
+    </div>
+  </div>
+
+  <div id="msg"></div>
+  <div class="hint">H hides this panel (for recording) · drag to orbit · scroll to zoom</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+"use strict";
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const $ = (id) => document.getElementById(id);
+
+// ---- scene -----------------------------------------------------------------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+$("view").appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(css("--bg"));
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+camera.position.set(2.4, 1.7, 2.4);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.6, 0);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x2a2420, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+sun.position.set(3, 5, 2);
+scene.add(sun);
+const grid = new THREE.GridHelper(6, 24, 0x3a404c, 0x262a32);
+scene.add(grid);
+
+// URDF / global_frame is z-up; three.js is y-up. The spec leaves this
+// correction to the viewer, so everything robot-related lives in `world`.
+const world = new THREE.Group();
+world.rotation.x = -Math.PI / 2;
+scene.add(world);
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+
+// ---- robot -------------------------------------------------------------------
+const PALETTE = [0x6ea8fe, 0x4cc38a, 0xf0b429, 0xc792ea, 0xf78c6c, 0x89ddff];
+const STANDIN = 0x9aa1ad;
+let links = {};      // name -> THREE.Group (pose set straight from /xform_world)
+let bones = [];      // {parent, child, mesh}
+let axes = [];
+const UP = new THREE.Vector3(0, 1, 0);
+
+function material(color) {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.1 });
+}
+
+function visualMesh(visual, color) {
+  const p = visual.params;
+  let geo;
+  switch (visual.shape) {
+    case "box": geo = new THREE.BoxGeometry(p.size[0], p.size[1], p.size[2]); break;
+    case "sphere": geo = new THREE.SphereGeometry(p.radius, 24, 16); break;
+    case "cylinder":
+      geo = new THREE.CylinderGeometry(p.radius, p.radius, p.length, 24);
+      geo.rotateX(Math.PI / 2);  // three's cylinders run along y, URDF's along z
+      break;
+    default:  // mesh files are not loaded (package:// paths); draw a stand-in
+      geo = new THREE.SphereGeometry(0.035, 16, 12);
+      color = STANDIN;
+  }
+  const mesh = new THREE.Mesh(geo, material(color));
+  const o = visual.origin;
+  mesh.position.set(o.xyz[0], o.xyz[1], o.xyz[2]);
+  mesh.rotation.set(o.rpy[0], o.rpy[1], o.rpy[2], "ZYX");  // Rz(yaw)·Ry(pitch)·Rx(roll)
+  return mesh;
+}
+
+function buildRobot(robot) {
+  while (world.children.length) world.remove(world.children[0]);
+  links = {}; bones = []; axes = [];
+  let meshCount = 0;
+  robot.links.forEach((link, i) => {
+    const g = new THREE.Group();
+    g.matrixAutoUpdate = false;
+    g.visible = false;  // until its first pose arrives
+    if (link.visual) {
+      if (link.visual.shape === "mesh") meshCount++;
+      g.add(visualMesh(link.visual, PALETTE[i % PALETTE.length]));
+    }
+    const ax = new THREE.AxesHelper(0.08);
+    ax.visible = $("frames").checked;
+    g.add(ax); axes.push(ax);
+    world.add(g);
+    links[link.name] = g;
+  });
+  const boneMat = material(STANDIN);
+  for (const j of robot.joints) {
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 10), boneMat);
+    mesh.visible = false;
+    world.add(mesh);
+    bones.push({ parent: j.parent, child: j.child, mesh });
+  }
+  // Mostly mesh visuals (like Fetch) -> the skeleton is what shows the shape.
+  $("skeleton").checked = meshCount > robot.links.length / 2;
+  $("robot-name").textContent = robot.name;
+  $("robot-info").textContent = `${robot.links.length} links · ${robot.joints.length} joints · root ${robot.root}` +
+    (meshCount ? ` · ${meshCount} mesh visuals drawn as stand-ins` : "");
+  $("empty").style.display = "none";
+}
+
+const a = new THREE.Vector3(), b = new THREE.Vector3(), dir = new THREE.Vector3();
+function applyPoses(msg) {
+  for (const e of msg.transforms) {
+    const g = links[e.child_frame_id];
+    if (!g) continue;
+    g.matrix.fromArray(e.matrix);  // column-major, exactly as /xform_world sends it
+    g.matrixWorldNeedsUpdate = true;
+    g.visible = true;
+  }
+  const showSkeleton = $("skeleton").checked;
+  for (const bone of bones) {
+    const p = links[bone.parent], c = links[bone.child];
+    if (!p || !c || !p.visible || !c.visible || !showSkeleton) { bone.mesh.visible = false; continue; }
+    a.setFromMatrixPosition(p.matrix);
+    b.setFromMatrixPosition(c.matrix);
+    dir.subVectors(b, a);
+    const len = dir.length();
+    if (len < 1e-6) { bone.mesh.visible = false; continue; }
+    bone.mesh.position.addVectors(a, b).multiplyScalar(0.5);
+    bone.mesh.quaternion.setFromUnitVectors(UP, dir.divideScalar(len));
+    bone.mesh.scale.set(1, len, 1);
+    bone.mesh.visible = true;
+  }
+}
+
+// ---- runtime link ----------------------------------------------------------
+function say(text, isError) {
+  $("msg").textContent = text;
+  $("msg").className = isError ? "error" : "";
+}
+
+async function call(service, args) {
+  const res = await fetch("/call", { method: "POST", body: JSON.stringify({ service, args }) });
+  return res.json();
+}
+
+async function refreshSaved() {
+  const r = await call("/fsm/list_saved", {});
+  const sel = $("saved");
+  const keep = sel.value;
+  sel.innerHTML = "";
+  for (const id of (r.result ? r.values.identifiers : [])) {
+    const opt = document.createElement("option");
+    opt.value = opt.textContent = id;
+    sel.appendChild(opt);
+  }
+  if (keep) sel.value = keep;
+  if (!r.result) say("FSM not available — is this `make demo`?", true);
+}
+
+$("deploy").onclick = async () => {
+  const id = $("saved").value;
+  if (!id) return;
+  const loaded = await call("/fsm/load_from_file", { identifier: id });
+  if (!loaded.result) return say(loaded.status, true);
+  const r = await call("/fsm/update_logic", loaded.values);
+  say(r.result ? `deployed ${id}` : r.status, !r.result);
+};
+$("start").onclick = async () => { const r = await call("/fsm/set_running", { data: true }); if (!r.result) say(r.status, true); };
+$("stop").onclick = async () => { const r = await call("/fsm/set_running", { data: false }); if (!r.result) say(r.status, true); };
+$("reset").onclick = async () => {
+  const r = await call("/joint_state_publisher/reset", {});
+  say(r.result ? "joints → middle of their limits (stop the FSM first, or it will move them back)" : r.status, !r.result);
+};
+$("frames").onchange = () => axes.forEach((ax) => { ax.visible = $("frames").checked; });
+$("spin").onchange = () => { controls.autoRotate = $("spin").checked; };
+window.addEventListener("keydown", (e) => {
+  if (e.key === "h" || e.key === "H") $("panel").classList.toggle("hidden");
+});
+
+const events = new EventSource("/events");
+events.addEventListener("gateway", (e) => {
+  const up = JSON.parse(e.data).connected;
+  $("gw").classList.toggle("on", up);
+  $("gw").title = up ? "connected to runtime" : "runtime not reachable on 127.0.0.1:9095";
+  if (up) refreshSaved();
+});
+events.addEventListener("robot", (e) => buildRobot(JSON.parse(e.data)));
+events.addEventListener("xform", (e) => applyPoses(JSON.parse(e.data)));
+events.addEventListener("fsm", (e) => {
+  const s = JSON.parse(e.data);
+  $("fsm-state").textContent = s.current_state ?? "—";
+  const chip = $("fsm-running");
+  chip.textContent = s.current_state ? (s.running ? "running" : "stopped") : "idle";
+  chip.className = "chip " + (s.current_state ? (s.running ? "running" : "stopped") : "");
+  $("fsm-detail").textContent = s.current_state
+    ? `${s.time_in_state.toFixed(1)} s in state` + (s.last_transition ? ` · via ${s.last_transition}` : "")
+    : "no FSM deployed";
+});
+events.onerror = () => { $("gw").classList.remove("on"); };
+
+(function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
