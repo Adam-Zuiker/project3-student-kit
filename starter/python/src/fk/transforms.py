@@ -67,11 +67,7 @@ def quat_from_axis_angle(axis: Vec3, angle: float) -> Quat:
     length; normalize it here. A zero-length axis has no defined rotation
     (UNSPECIFIED by the spec): return the identity rather than dividing by 0."""
     if not axis[0] and not axis[1] and not axis[2]:
-            return [
-                [1, 0, 0],
-                [0, 1, 0],
-                [0, 0, 1],
-            ]
+            return QUAT_IDENTITY
     axis = axis_normalize(axis)
     q_w = math.cos(angle / 2)
     q_x = axis[0] * math.sin(angle / 2)

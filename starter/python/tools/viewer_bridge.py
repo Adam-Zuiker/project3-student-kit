@@ -15,11 +15,18 @@ re-serves what the page needs over plain HTTP:
     GET  /events   Server-Sent Events: `robot` (link shapes + joint tree,
                    resent when a new description loads), `xform` (each
                    /xform_world), `fsm` (each /fsm/status), `gateway` (up/down)
+    GET  /mesh/<package>/<path>   a mesh or texture file (see below)
     POST /call     {"service": ..., "args": ...} -> the service_response
 
 The robot's shapes come from parsing robot_description with the runtime's
 own fk.urdf, so the page never has to read XML. If the runtime restarts,
 the bridge reconnects on its own.
+
+Meshes: a visual's `package://<package>/<path>` is a ROS package path. Tell
+the bridge where each package lives with `--package NAME=DIR` (repeatable);
+`fetch_description` defaults to the kit's robots/fetch when its meshes are
+there. A resolvable mesh gets a `url` in the robot JSON; the page draws a
+stand-in for any that don't.
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional
+from urllib.parse import unquote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
@@ -43,6 +51,50 @@ from fk import urdf  # noqa: E402
 INDEX_HTML = os.path.join(HERE, "viewer", "index.html")
 TOPICS = ("/xform_world", "/fsm/status")
 EVENT_FOR_TOPIC = {"/xform_world": "xform", "/fsm/status": "fsm"}
+KIT_ROBOTS = os.path.normpath(os.path.join(HERE, "..", "..", "..", "robots"))
+CONTENT_TYPES = {".dae": "model/vnd.collada+xml", ".stl": "application/octet-stream", ".obj": "text/plain",
+                 ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+# Mesh packages that ship with the kit (used when their folder exists).
+KIT_PACKAGES = {
+    "fetch_description": os.path.join(KIT_ROBOTS, "fetch"),     # .../meshes/*.dae|.STL
+    "Atlas": os.path.join(KIT_ROBOTS, "atlas"),                 # .../urdf/meshes/*.obj
+}
+# Robots the viewer's picker can load: name -> (URDF path, pelvis/base height
+# that puts the robot's feet or wheels on the z = 0 floor, sent as /global_pose).
+KIT_ROBOT_FILES = {
+    "fetch": (os.path.join(KIT_ROBOTS, "fetch", "fetch.urdf"), 0.0),
+    "atlas": (os.path.join(KIT_ROBOTS, "atlas", "urdf", "atlas.urdf"), 0.938),
+    "two_link_arm": (os.path.join(HERE, "..", "tests", "robots", "two_link_arm.urdf"), 0.0),
+}
+
+# package name -> absolute directory (filled in main from KIT_PACKAGES and --package)
+PACKAGES: Dict[str, str] = {}
+
+
+def available_robots() -> Dict[str, Any]:
+    return {name: spec for name, spec in KIT_ROBOT_FILES.items() if os.path.isfile(spec[0])}
+
+
+def mesh_url(filename: str) -> Optional[str]:
+    """`package://pkg/a/b.dae` -> `/mesh/pkg/a/b.dae` if that file exists."""
+    if not filename.startswith("package://"):
+        return None
+    package, _, rel = filename[len("package://"):].partition("/")
+    if mesh_path(package, rel) is None:
+        return None
+    return f"/mesh/{package}/{rel}"
+
+
+def mesh_path(package: str, rel: str) -> Optional[str]:
+    """Resolve a file inside a known package, refusing anything that escapes it."""
+    root = PACKAGES.get(package)
+    if root is None:
+        return None
+    path = os.path.realpath(os.path.join(root, rel))
+    if os.path.commonpath([path, root]) != root or not os.path.isfile(path):
+        return None
+    return path
 
 
 class Gateway:
@@ -65,6 +117,10 @@ class Gateway:
                 raise ConnectionError("runtime not connected")
             self._stream.write((json.dumps(message) + "\n").encode())
             self._stream.flush()
+
+    def publish(self, topic: str, msg: Any) -> None:
+        self._send({"op": "advertise", "topic": topic})
+        self._send({"op": "publish", "topic": topic, "msg": msg})
 
     def call(self, service: str, args: Any, timeout: float = 5.0) -> Dict[str, Any]:
         call_id = f"viewer-{next(self._ids)}"
@@ -129,7 +185,10 @@ def robot_json(model: urdf.RobotModel, version: int) -> Dict[str, Any]:
         v = link.visual
         if v is None:
             return None
-        return {"shape": v.shape, "params": v.params, "origin": {"xyz": v.origin.xyz, "rpy": v.origin.rpy}}
+        params = dict(v.params)
+        if v.shape == "mesh":
+            params["url"] = mesh_url(str(params["filename"]))
+        return {"shape": v.shape, "params": params, "origin": {"xyz": v.origin.xyz, "rpy": v.origin.rpy}}
 
     return {
         "name": model.name,
@@ -216,8 +275,27 @@ def make_handler(gw: Gateway, hub: Hub):
                 self.wfile.write(data)
             elif self.path == "/events":
                 self._events()
+            elif self.path == "/robots":
+                self._json(200, {"robots": sorted(available_robots())})
+            elif self.path.startswith("/mesh/"):
+                self._mesh()
             else:
                 self.send_error(404)
+
+        def _mesh(self):
+            package, _, rel = unquote(self.path[len("/mesh/"):].split("?", 1)[0]).partition("/")
+            path = mesh_path(package, rel)
+            if path is None:
+                self.send_error(404)
+                return
+            with open(path, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", CONTENT_TYPES.get(os.path.splitext(path)[1].lower(), "application/octet-stream"))
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(data)
 
         def _events(self):
             self.send_response(200)
@@ -246,15 +324,31 @@ def make_handler(gw: Gateway, hub: Hub):
             self.wfile.flush()
 
         def do_POST(self):
-            if self.path != "/call":
+            if self.path not in ("/call", "/load"):
                 self.send_error(404)
                 return
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-                reply = gw.call(body["service"], body.get("args", {}))
+                if self.path == "/load":
+                    reply = self._load(body.get("robot"))
+                else:
+                    reply = gw.call(body["service"], body.get("args", {}))
                 self._json(200, {k: reply.get(k) for k in ("result", "status", "values")})
             except Exception as exc:  # noqa: BLE001
                 self._json(200, {"result": False, "status": str(exc), "values": {}})
+
+        def _load(self, name: Any) -> Dict[str, Any]:
+            """Load a bundled robot by name (never an arbitrary path) and stand it on the floor."""
+            robots = available_robots()
+            if name not in robots:
+                return {"result": False, "status": f"unknown robot {name!r}", "values": {}}
+            path, height = robots[name]
+            with open(path, encoding="utf-8") as f:
+                reply = gw.call("/param_server/set_param", {"name": "robot_description", "value": f.read()})
+            if reply.get("result"):
+                gw.publish("/global_pose", {"position": {"x": 0.0, "y": 0.0, "z": height},
+                                            "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}})
+            return reply
 
     return Handler
 
@@ -263,7 +357,20 @@ def main() -> int:
     p = argparse.ArgumentParser(description="HTTP bridge between the runtime and tools/viewer/index.html")
     p.add_argument("--port", type=int, default=8080, help="HTTP port for the browser (default 8080)")
     p.add_argument("--runtime-port", type=int, default=9095)
+    p.add_argument("--package", action="append", default=[], metavar="NAME=DIR",
+                   help="where a package:// mesh package lives (repeatable)")
     args = p.parse_args()
+
+    for name, directory in KIT_PACKAGES.items():
+        if os.path.isdir(directory):
+            PACKAGES[name] = os.path.realpath(directory)
+    for spec in args.package:
+        name, sep, directory = spec.partition("=")
+        if not sep or not os.path.isdir(directory):
+            p.error(f"--package {spec!r}: expected NAME=DIR with an existing DIR")
+        PACKAGES[name] = os.path.realpath(directory)
+    for name, directory in PACKAGES.items():
+        print(f"bridge: package://{name} -> {directory}", file=sys.stderr)
 
     hub = Hub()
     gw = Gateway(args.runtime_port, hub.emit)

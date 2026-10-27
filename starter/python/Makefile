@@ -8,6 +8,6 @@ demo:
 viewer:
 	python3 tools/viewer_bridge.py
 test:
-	python3 -m unittest discover -s tests -v
+	@python3 tests/run_tests.py $(TESTS)
 clean:
 	find src tests tools -type d -name __pycache__ -exec rm -rf {} +

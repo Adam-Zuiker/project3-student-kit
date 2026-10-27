@@ -1,0 +1,191 @@
+{
+  "initial_state": "home",
+  "states": [
+    {
+      "name": "home",
+      "target": {
+        "joint_names": [
+          "back_bkz",
+          "back_bkx",
+          "neck_ay",
+          "l_arm_elx",
+          "r_arm_elx",
+          "l_arm_shz",
+          "r_arm_shz"
+        ],
+        "positions": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "twist_left"
+        }
+      ]
+    },
+    {
+      "name": "twist_left",
+      "target": {
+        "joint_names": [
+          "back_bkz",
+          "back_bkx",
+          "neck_ay",
+          "l_arm_elx",
+          "r_arm_elx",
+          "l_arm_shz",
+          "r_arm_shz"
+        ],
+        "positions": [
+          0.5,
+          0.0,
+          0.3,
+          1.2,
+          -1.2,
+          0.0,
+          0.0
+        ]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "lean_left"
+        }
+      ]
+    },
+    {
+      "name": "lean_left",
+      "target": {
+        "joint_names": [
+          "back_bkz",
+          "back_bkx",
+          "neck_ay",
+          "l_arm_elx",
+          "r_arm_elx",
+          "l_arm_shz",
+          "r_arm_shz"
+        ],
+        "positions": [
+          0.5,
+          0.35,
+          0.3,
+          1.2,
+          -1.2,
+          -0.6,
+          0.6
+        ]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "twist_right"
+        }
+      ]
+    },
+    {
+      "name": "twist_right",
+      "target": {
+        "joint_names": [
+          "back_bkz",
+          "back_bkx",
+          "neck_ay",
+          "l_arm_elx",
+          "r_arm_elx",
+          "l_arm_shz",
+          "r_arm_shz"
+        ],
+        "positions": [
+          -0.5,
+          0.0,
+          -0.2,
+          0.4,
+          -0.4,
+          0.0,
+          0.0
+        ]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "lean_right"
+        }
+      ]
+    },
+    {
+      "name": "lean_right",
+      "target": {
+        "joint_names": [
+          "back_bkz",
+          "back_bkx",
+          "neck_ay",
+          "l_arm_elx",
+          "r_arm_elx",
+          "l_arm_shz",
+          "r_arm_shz"
+        ],
+        "positions": [
+          -0.5,
+          -0.35,
+          -0.2,
+          0.4,
+          -0.4,
+          -0.6,
+          0.6
+        ]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "nod"
+        }
+      ]
+    },
+    {
+      "name": "nod",
+      "target": {
+        "joint_names": [
+          "back_bkz",
+          "back_bkx",
+          "neck_ay",
+          "l_arm_elx",
+          "r_arm_elx",
+          "l_arm_shz",
+          "r_arm_shz"
+        ],
+        "positions": [
+          0.0,
+          0.0,
+          0.8,
+          2.0,
+          -2.0,
+          0.3,
+          -0.3
+        ]
+      },
+      "epsilon": 0.02,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "home"
+        }
+      ]
+    }
+  ]
+}

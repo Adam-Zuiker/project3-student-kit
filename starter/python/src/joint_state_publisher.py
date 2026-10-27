@@ -29,6 +29,9 @@ from services.provider import register as register_provider
 log = logging.getLogger("joint_state_publisher")
 
 PUBLISH_PERIOD_S = 0.1
+# Optional parameter of this node's own (spec/FK_API.md allows that, with a
+# documented default): servo gain per second. Lower it to slow a demo down.
+GAIN_PARAM = "/joint_state_publisher/gain"
 
 
 def _rest_position(joint: urdf.Joint) -> float:
@@ -99,13 +102,17 @@ class JointStatePublisher:
 
         with self._lock:
             setpoints = dict(self._setpoints)
+        # Running a gain-K servo for dt is the same as running the default-gain
+        # servo for dt·K/K_default (the decay depends only on K·dt), so a slower
+        # demo gain needs no change to servo_step.
+        scaled_dt = dt * self._gain() / servo.GAIN_PER_S
         names, positions = [], []
         for joint in robot.joints:
             if not joint.movable:
                 continue
             q = self._positions.get(joint.name, 0.0)
             target = setpoints.get(joint.name, q)
-            q = servo.servo_step(joint, q, target, dt)
+            q = servo.servo_step(joint, q, target, scaled_dt)
             self._positions[joint.name] = q
             names.append(joint.name)
             positions.append(q)
@@ -118,6 +125,15 @@ class JointStatePublisher:
             "velocity": [],
             "effort": [],
         })
+
+    def _gain(self) -> float:
+        """`/joint_state_publisher/gain` (per second) if set to a positive
+        number, else the documented default, servo.GAIN_PER_S (50)."""
+        values, ok, _ = self._client.call("/param_server/get_param", {"name": GAIN_PARAM})
+        gain = values.get("value") if ok and isinstance(values, dict) else None
+        if isinstance(gain, (int, float)) and not isinstance(gain, bool) and math.isfinite(gain) and gain > 0:
+            return float(gain)
+        return servo.GAIN_PER_S
 
     def _poll_description(self) -> None:
         values, ok, _ = self._client.call("/param_server/get_param", {"name": "robot_description"})

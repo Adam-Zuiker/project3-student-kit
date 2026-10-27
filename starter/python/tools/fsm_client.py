@@ -6,6 +6,7 @@
     python3 tools/fsm_client.py save my_dance fsm/draft.json # store a file through /fsm/save_to_file
     python3 tools/fsm_client.py list | get | start | stop
     python3 tools/fsm_client.py fire to_home
+    python3 tools/fsm_client.py gain 10                      # slow the servo for filming (default 50)
     python3 tools/fsm_client.py watch                        # print /fsm/status changes (Ctrl-C to stop)
 """
 
@@ -46,6 +47,8 @@ def main(argv):
         return show(c.call("/fsm/set_running", {"data": cmd == "start"}))
     if cmd == "fire":
         return show(c.call("/fsm/fire_transition", {"transition": rest[0]}))
+    if cmd == "gain":  # servo speed for joint_state_publisher; 50 is the default
+        return show(c.call("/param_server/set_param", {"name": "/joint_state_publisher/gain", "value": float(rest[0])}))
     if cmd == "watch":
         c.send({"op": "subscribe", "topic": "/fsm/status"})
         last = None

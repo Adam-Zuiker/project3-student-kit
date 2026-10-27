@@ -68,6 +68,7 @@ class FiniteStateMachine:
         self._states: Dict[str, Dict[str, Any]] = {}
         self._current: Optional[str] = None
         self._entered_at = time.monotonic()
+        self._arrived_at: Optional[float] = None
         self._last_transition: Optional[str] = None
         self._running = False
         self._positions: Dict[str, float] = {}
@@ -95,6 +96,7 @@ class FiniteStateMachine:
         once the lock is released."""
         self._current = name
         self._entered_at = time.monotonic()
+        self._arrived_at = None
         if via is not None:
             self._last_transition = via
         log.info("-> %s%s", name, f" (via {via})" if via else "")
@@ -130,7 +132,12 @@ class FiniteStateMachine:
             if self._running and self._current is not None:
                 state = self._states[self._current]
                 transition = state.get("on_arrival")
-                if transition and arrived(state, self._positions):
+                now = time.monotonic()
+                if not arrived(state, self._positions):
+                    self._arrived_at = None
+                elif self._arrived_at is None:
+                    self._arrived_at = now  # start the optional "hold" (seconds) once there
+                if transition and self._arrived_at is not None and now - self._arrived_at >= state.get("hold", 0):
                     trajectory = self._take(transition)
             status = {
                 "current_state": self._current,

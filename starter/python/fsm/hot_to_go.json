@@ -1,0 +1,401 @@
+{
+  "initial_state": "ready",
+  "states": [
+    {
+      "name": "ready",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          0.413,
+          -0.774,
+          3.141,
+          1.962,
+          -0.413,
+          0.774,
+          3.141,
+          -1.962,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 1.0,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "H"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    },
+    {
+      "name": "H",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          0.022,
+          1.569,
+          2.576,
+          0.03,
+          -0.012,
+          -1.57,
+          2.745,
+          -0.03,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 0.3,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "O_1"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    },
+    {
+      "name": "O_1",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          -0.011,
+          1.451,
+          0.011,
+          1.126,
+          0.011,
+          -1.451,
+          0.011,
+          -1.126,
+          0.0,
+          0.0,
+          -0.2
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 0.3,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "T_1"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    },
+    {
+      "name": "T_1",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          -0.003,
+          0.003,
+          0.074,
+          0.0,
+          0.003,
+          -0.003,
+          0.075,
+          0.0,
+          0.0,
+          0.15,
+          0.0
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 0.3,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "T_2"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    },
+    {
+      "name": "T_2",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          -0.003,
+          0.003,
+          0.074,
+          0.0,
+          0.003,
+          -0.003,
+          0.075,
+          0.0,
+          0.0,
+          -0.15,
+          0.0
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 0.3,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "O_2"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    },
+    {
+      "name": "O_2",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          -0.011,
+          1.451,
+          0.011,
+          1.126,
+          0.011,
+          -1.451,
+          0.011,
+          -1.126,
+          0.0,
+          0.0,
+          -0.2
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 0.3,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "G"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    },
+    {
+      "name": "G",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          -0.01,
+          -1.21,
+          3.131,
+          2.129,
+          0.016,
+          -1.57,
+          0.016,
+          -1.048,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 0.3,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "O_3"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    },
+    {
+      "name": "O_3",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          -0.011,
+          1.451,
+          0.011,
+          1.126,
+          0.011,
+          -1.451,
+          0.011,
+          -1.126,
+          0.0,
+          0.0,
+          -0.2
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 0.3,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "hot_to_go"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    },
+    {
+      "name": "hot_to_go",
+      "target": {
+        "joint_names": [
+          "l_arm_shz",
+          "l_arm_shx",
+          "l_arm_ely",
+          "l_arm_elx",
+          "r_arm_shz",
+          "r_arm_shx",
+          "r_arm_ely",
+          "r_arm_elx",
+          "back_bkz",
+          "back_bkx",
+          "neck_ay"
+        ],
+        "positions": [
+          0.413,
+          -0.774,
+          3.141,
+          1.962,
+          -0.413,
+          0.774,
+          3.141,
+          -1.962,
+          0.35,
+          0.0,
+          0.35
+        ]
+      },
+      "epsilon": 0.02,
+      "hold": 0.8,
+      "on_arrival": "next",
+      "transitions": [
+        {
+          "name": "next",
+          "next_state": "H"
+        },
+        {
+          "name": "stop_pose",
+          "next_state": "ready"
+        }
+      ]
+    }
+  ]
+}

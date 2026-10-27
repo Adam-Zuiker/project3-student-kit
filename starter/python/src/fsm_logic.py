@@ -57,6 +57,9 @@ def _shape_error(doc: Any) -> Optional[str]:
             return f"state {s['name']!r}: target needs equal-length joint_names (strings) and positions (numbers)"
         if not _is_number(s.get("epsilon")):
             return f"state {s['name']!r}: epsilon must be a number"
+        # Optional extension (not in the spec): seconds to stay after arriving.
+        if "hold" in s and not (_is_number(s["hold"]) and s["hold"] >= 0):
+            return f"state {s['name']!r}: hold must be a number of seconds >= 0"
         transitions = s.get("transitions")
         if not isinstance(transitions, list) or not all(
                 isinstance(t, dict) and isinstance(t.get("name"), str) and isinstance(t.get("next_state"), str)
@@ -115,7 +118,7 @@ def validate_fsm(doc: Any) -> Optional[str]:
             return f"state {state['name']!r}: transition name {duplicate!r} is used more than once"
 
         on_arrival = state.get("on_arrival", None)
-        if on_arrival is not None and on_arrival not in transitions_set:
+        if on_arrival is not None and (not isinstance(on_arrival, str) or on_arrival not in transitions_set):
             return (f"state {state['name']!r}: on_arrival {on_arrival!r} is not one of its transitions "
                     f"{sorted(transitions_set)}")
 

@@ -55,6 +55,10 @@
 <div id="panel">
   <h1><span id="gw" class="dot" title="runtime connection"></span><span id="robot-name">No robot</span></h1>
   <div class="hint" id="robot-info">—</div>
+  <div class="row">
+    <select id="robot-pick" aria-label="bundled robots"></select>
+    <button id="robot-load">Load robot</button>
+  </div>
 
   <div class="section">
     <div class="label">Choreography</div>
@@ -86,6 +90,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/ColladaLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
 <script>
 "use strict";
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -137,8 +144,43 @@ function material(color) {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.1 });
 }
 
+// Mesh files, loaded once per URL and cloned per use (Fetch's bellows mesh is used twice).
+const meshCache = new Map();
+function loadMeshModel(url, color) {
+  if (!meshCache.has(url)) {
+    meshCache.set(url, new Promise((resolve, reject) => {
+      if (url.toLowerCase().endsWith(".dae")) {
+        new THREE.ColladaLoader().load(url, (collada) => {
+          // ColladaLoader turns Z_UP files y-up for a y-up scene; ours is already
+          // inside the z-up `world` group, so undo that (its unit scale stays).
+          collada.scene.quaternion.identity();
+          resolve(collada.scene);
+        }, undefined, reject);
+      } else if (url.toLowerCase().endsWith(".stl")) {
+        new THREE.STLLoader().load(url, (geo) => {
+          geo.computeVertexNormals();
+          resolve(new THREE.Mesh(geo, material(color)));
+        }, undefined, reject);
+      } else if (url.toLowerCase().endsWith(".obj")) {
+        // OBJ has no up-axis header and (here) no material file: give it our own.
+        new THREE.OBJLoader().load(url, (obj) => {
+          obj.traverse((child) => { if (child.isMesh) child.material = material(color); });
+          resolve(obj);
+        }, undefined, reject);
+      } else {
+        reject(new Error("unsupported mesh format"));
+      }
+    }));
+  }
+  return meshCache.get(url).then((model) => model.clone());
+}
+
 function visualMesh(visual, color) {
   const p = visual.params;
+  const o = visual.origin;
+  const holder = new THREE.Group();
+  holder.position.set(o.xyz[0], o.xyz[1], o.xyz[2]);
+  holder.rotation.set(o.rpy[0], o.rpy[1], o.rpy[2], "ZYX");  // Rz(yaw)·Ry(pitch)·Rx(roll)
   let geo;
   switch (visual.shape) {
     case "box": geo = new THREE.BoxGeometry(p.size[0], p.size[1], p.size[2]); break;
@@ -147,27 +189,52 @@ function visualMesh(visual, color) {
       geo = new THREE.CylinderGeometry(p.radius, p.radius, p.length, 24);
       geo.rotateX(Math.PI / 2);  // three's cylinders run along y, URDF's along z
       break;
-    default:  // mesh files are not loaded (package:// paths); draw a stand-in
-      geo = new THREE.SphereGeometry(0.035, 16, 12);
-      color = STANDIN;
+    default: {
+      // A stand-in sphere until (unless) the real mesh file loads.
+      const standin = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 12), material(STANDIN));
+      holder.add(standin);
+      if (p.url) {
+        loadMeshModel(p.url, color).then((model) => {
+          model.scale.multiply(new THREE.Vector3(p.scale[0], p.scale[1], p.scale[2]));
+          holder.remove(standin);
+          holder.add(model);
+          meshesLoaded++;
+          showRobotInfo();
+        }).catch((err) => console.warn("mesh failed, keeping stand-in:", p.url, err));
+      }
+      return holder;
+    }
   }
-  const mesh = new THREE.Mesh(geo, material(color));
-  const o = visual.origin;
-  mesh.position.set(o.xyz[0], o.xyz[1], o.xyz[2]);
-  mesh.rotation.set(o.rpy[0], o.rpy[1], o.rpy[2], "ZYX");  // Rz(yaw)·Ry(pitch)·Rx(roll)
-  return mesh;
+  holder.add(new THREE.Mesh(geo, material(color)));
+  return holder;
+}
+
+let currentRobot = null, meshCount = 0, meshesLoaded = 0, meshesAvailable = 0;
+function showRobotInfo() {
+  const r = currentRobot;
+  let meshes = "";
+  if (meshCount) {
+    meshes = meshesAvailable
+      ? ` · meshes ${meshesLoaded}/${meshCount} loaded`
+      : ` · ${meshCount} mesh visuals drawn as stand-ins (no mesh files; see viewer_bridge.py --package)`;
+  }
+  $("robot-info").textContent =
+    `${r.links.length} links · ${r.joints.length} joints · root ${r.root}${meshes}`;
 }
 
 function buildRobot(robot) {
   while (world.children.length) world.remove(world.children[0]);
   links = {}; bones = []; axes = [];
-  let meshCount = 0;
+  currentRobot = robot; meshCount = 0; meshesLoaded = 0; meshesAvailable = 0;
   robot.links.forEach((link, i) => {
     const g = new THREE.Group();
     g.matrixAutoUpdate = false;
     g.visible = false;  // until its first pose arrives
     if (link.visual) {
-      if (link.visual.shape === "mesh") meshCount++;
+      if (link.visual.shape === "mesh") {
+        meshCount++;
+        if (link.visual.params.url) meshesAvailable++;
+      }
       g.add(visualMesh(link.visual, PALETTE[i % PALETTE.length]));
     }
     const ax = new THREE.AxesHelper(0.08);
@@ -183,11 +250,10 @@ function buildRobot(robot) {
     world.add(mesh);
     bones.push({ parent: j.parent, child: j.child, mesh });
   }
-  // Mostly mesh visuals (like Fetch) -> the skeleton is what shows the shape.
-  $("skeleton").checked = meshCount > robot.links.length / 2;
+  // Mostly stand-ins (mesh visuals with no files) -> the skeleton is what shows the shape.
+  $("skeleton").checked = meshCount - meshesAvailable > robot.links.length / 2;
   $("robot-name").textContent = robot.name;
-  $("robot-info").textContent = `${robot.links.length} links · ${robot.joints.length} joints · root ${robot.root}` +
-    (meshCount ? ` · ${meshCount} mesh visuals drawn as stand-ins` : "");
+  showRobotInfo();
   $("empty").style.display = "none";
 }
 
@@ -255,7 +321,29 @@ $("reset").onclick = async () => {
   const r = await call("/joint_state_publisher/reset", {});
   say(r.result ? "joints → middle of their limits (stop the FSM first, or it will move them back)" : r.status, !r.result);
 };
-$("frames").onchange = () => axes.forEach((ax) => { ax.visible = $("frames").checked; });
+async function refreshRobots() {
+  const r = await (await fetch("/robots")).json();
+  const sel = $("robot-pick");
+  const keep = sel.value;
+  sel.innerHTML = "";
+  for (const name of r.robots) {
+    const opt = document.createElement("option");
+    opt.value = opt.textContent = name;
+    sel.appendChild(opt);
+  }
+  if (keep) sel.value = keep;
+}
+$("robot-load").onclick = async () => {
+  const name = $("robot-pick").value;
+  if (!name) return;
+  say(`loading ${name}…`);
+  const res = await fetch("/load", { method: "POST", body: JSON.stringify({ robot: name }) });
+  const r = await res.json();
+  say(r.result ? `loaded ${name} (stop or redeploy the FSM: its joint names are per robot)` : r.status, !r.result);
+};
+refreshRobots();
+
+$("frames").onchange =() => axes.forEach((ax) => { ax.visible = $("frames").checked; });
 $("spin").onchange = () => { controls.autoRotate = $("spin").checked; };
 window.addEventListener("keydown", (e) => {
   if (e.key === "h" || e.key === "H") $("panel").classList.toggle("hidden");
